@@ -1,95 +1,139 @@
 import tkinter as tk
-from tkinter import simpledialog, messagebox
+from tkinter import filedialog, ttk
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import Image, ImageTk, ImageDraw
 
-# Function to simulate blood spatter
-def simulate_blood_spatter(velocity, angle_degrees, num_droplets=100):
+# Function to simulate blood spatter based on surface type
+def simulate_blood_spatter(velocity, angle_degrees, surface_type, num_droplets=100):
     angle_radians = np.radians(angle_degrees)
     gravity = 9.81
     time_of_flight = (2 * velocity * np.sin(angle_radians)) / gravity
     x = velocity * np.cos(angle_radians) * time_of_flight
     y = velocity * np.sin(angle_radians) * time_of_flight - 0.5 * gravity * time_of_flight**2
 
-    x_values = x + np.random.normal(0, 0.1, num_droplets)
-    y_values = y + np.random.normal(0, 0.1, num_droplets)
+    # Adjust parameters based on surface type
+    if surface_type == "Smooth":
+        spread = 0.05
+        satellite_chance = 0.1
+    elif surface_type == "Rough":
+        spread = 0.2
+        satellite_chance = 0.5
+    elif surface_type == "Fabric":
+        spread = 0.1
+        satellite_chance = 0.3
+    else:
+        spread = 0.1
+        satellite_chance = 0.2
+
+    # Simulate droplets
+    x_values = []
+    y_values = []
+    for _ in range(num_droplets):
+        xi = x + np.random.normal(0, spread)
+        yi = y + np.random.normal(0, spread)
+        if np.random.rand() < satellite_chance:
+            for _ in range(np.random.randint(1, 3)):
+                x_sat = xi + np.random.normal(0, spread/2)
+                y_sat = yi + np.random.normal(0, spread/2)
+                x_values.append(x_sat)
+                y_values.append(y_sat)
+        x_values.append(xi)
+        y_values.append(yi)
     return x_values, y_values
 
-# Function to open a dialog box and get user input
-def get_user_input():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
+# Function to analyze uploaded image (simulated blood detection)
+def analyze_image(image_path):
+    # Open image and convert to RGB
+    image = Image.open(image_path).convert("RGB")
+    width, height = image.size
 
-    # Create a custom dialog box
-    class InputDialog(tk.Toplevel):
-        def __init__(self):
-            super().__init__()
-            self.title("Blood Spatter Parameters")
+    # Detect "blood-like" regions (red color thresholding)
+    red_pixels = []
+    for x in range(width):
+        for y in range(height):
+            r, g, b = image.getpixel((x, y))
+            if r > 100 and g < 50 and b < 50:  # Simple red threshold
+                red_pixels.append((x, y))
+
+    # Count stains and calculate average size
+    stain_count = len(red_pixels)
+    avg_area = stain_count / (width * height) if stain_count > 0 else 0
+    return stain_count, avg_area
+
+# GUI Application
+class BloodSpatterApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Blood Spatter Analyzer")
+        self.geometry("1000x600")
+
+        # Surface type dropdown
+        self.surface_label = tk.Label(self, text="Select Surface Type:")
+        self.surface_label.pack(pady=5)
+        self.surface_var = tk.StringVar()
+        self.surface_dropdown = ttk.Combobox(self, textvariable=self.surface_var, 
+                                           values=["Smooth", "Rough", "Fabric"])
+        self.surface_dropdown.pack(pady=5)
+        self.surface_dropdown.set("Smooth")
+
+        # Upload image button
+        self.upload_btn = tk.Button(self, text="Upload Image", command=self.upload_image)
+        self.upload_btn.pack(pady=10)
+
+        # Image display frame
+        self.image_frame = tk.Frame(self)
+        self.image_frame.pack(side=tk.LEFT, padx=10)
+
+        # Simulation plot frame
+        self.plot_frame = tk.Frame(self)
+        self.plot_frame.pack(side=tk.RIGHT, padx=10)
+
+    def upload_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg")])
+        if file_path:
+            # Analyze image
+            stain_count, avg_area = analyze_image(file_path)
             
-            # Labels and input fields
-            tk.Label(self, text="Velocity (m/s):").grid(row=0, column=0, padx=10, pady=5)
-            self.velocity_entry = tk.Entry(self)
-            self.velocity_entry.grid(row=0, column=1, padx=10, pady=5)
+            # Display image
+            img = Image.open(file_path)
+            img.thumbnail((300, 300))
+            img_tk = ImageTk.PhotoImage(img)
+            img_label = tk.Label(self.image_frame, image=img_tk)
+            img_label.image = img_tk
+            img_label.pack()
 
-            tk.Label(self, text="Angle (degrees):").grid(row=1, column=0, padx=10, pady=5)
-            self.angle_entry = tk.Entry(self)
-            self.angle_entry.grid(row=1, column=1, padx=10, pady=5)
+            # Display analysis results
+            result_text = f"Stains Detected: {stain_count}\nAverage Stain Area: {avg_area:.2f} px²"
+            result_label = tk.Label(self.image_frame, text=result_text)
+            result_label.pack()
 
-            tk.Label(self, text="Number of Droplets:").grid(row=2, column=0, padx=10, pady=5)
-            self.droplets_entry = tk.Entry(self)
-            self.droplets_entry.grid(row=2, column=1, padx=10, pady=5)
+            # Simulate blood spatter based on surface type
+            self.run_simulation()
 
-            tk.Button(self, text="Submit", command=self.on_submit).grid(row=3, column=0, columnspan=2, pady=10)
+    def run_simulation(self):
+        # Simulate with default values (customize as needed)
+        velocity = 10  # m/s
+        angle = 45  # degrees
+        surface_type = self.surface_var.get()
+        x, y = simulate_blood_spatter(velocity, angle, surface_type)
 
-        def on_submit(self):
-            try:
-                self.velocity = float(self.velocity_entry.get())
-                self.angle = float(self.angle_entry.get())
-                self.droplets = int(self.droplets_entry.get())
-                self.destroy()
-            except ValueError:
-                messagebox.showerror("Error", "Invalid input! Please enter numbers.")
+        # Plot simulation
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.scatter(x, y, color='red', s=10)
+        ax.set_title(f"Simulated Spatter ({surface_type} Surface)")
+        ax.set_xlabel("Distance (m)")
+        ax.set_ylabel("Height (m)")
+        ax.grid(True)
 
-    # Open the custom dialog and wait for input
-    dialog = InputDialog()
-    dialog.wait_window()
-
-    # Return the values if valid
-    if hasattr(dialog, 'velocity'):
-        return dialog.velocity, dialog.angle, dialog.droplets
-    else:
-        return None
-
-# Main function to run the program
-def main():
-    # Get user input from the dialog box
-    params = get_user_input()
-    if not params:
-        return  # Exit if input is invalid
-
-    velocity, angle, droplets = params
-
-    # Simulate blood spatter
-    x, y = simulate_blood_spatter(velocity, angle, droplets)
-
-    # Plot the results in a tkinter window
-    root = tk.Tk()
-    root.title("Blood Spatter Report")
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.scatter(x, y, color='red', s=10)
-    ax.set_title("Blood Spatter Pattern")
-    ax.set_xlabel("Distance (m)")
-    ax.set_ylabel("Height (m)")
-    ax.grid(True)
-
-    # Embed the plot in the tkinter window
-    canvas = FigureCanvasTkAgg(fig, master=root)
-    canvas.draw()
-    canvas.get_tk_widget().pack()
-
-    tk.mainloop()
+        # Embed plot in GUI
+        for widget in self.plot_frame.winfo_children():
+            widget.destroy()
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
 
 if __name__ == "__main__":
-    main()
+    app = BloodSpatterApp()
+    app.mainloop()
