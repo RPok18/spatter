@@ -1,0 +1,191 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from tkinter import Tk, Label, Button, Entry, StringVar, Toplevel, END, Checkbutton, ttk
+from datetime import datetime
+import os
+
+# Constants
+C = 0.47  # Drag coefficient
+rho_0 = 1.225  # Air density at sea level (kg/m^3)
+g = 9.81  # Gravity (m/s^2)
+H = 8500  # Scale height for Earth's atmosphere (m)
+
+class Projectile:
+    def __init__(self, v0, angle, height, size, weight):
+        self.v0 = v0
+        self.angle = np.deg2rad(angle)
+        self.height = height
+        self.size = size
+        self.weight = weight
+        self.cosa = np.cos(self.angle)
+        self.sina = np.sin(self.angle)
+        self.vx = self.v0 * self.cosa
+        self.vy = self.v0 * self.sina
+        self.x = 0
+        self.y = self.height
+        self.on_ground = False
+
+    def air_density(self, h):
+        """Calculate air density at a given altitude."""
+        return rho_0 * np.exp(-h / H)
+
+    def drag_force(self, vx, vy):
+        """Compute drag force components based on velocity."""
+        v = np.sqrt(vx**2 + vy**2)
+        rho = self.air_density(self.y)  # Dynamic air density
+        k = 0.5 * C * rho * self.size / self.weight  # Drag coefficient adjusted for mass
+        drag_x = -k * vx * v
+        drag_y = -k * vy * v
+        return drag_x, drag_y
+
+    def update(self, dt):
+        """Update projectile motion using Euler’s method."""
+        if not self.on_ground:
+            drag_x, drag_y = self.drag_force(self.vx, self.vy)
+            
+            # Update velocities
+            self.vx += drag_x * dt
+            self.vy += (-g + drag_y) * dt
+
+            # Update positions
+            self.x += self.vx * dt
+            self.y += self.vy * dt
+
+            if self.y <= 0:
+                self.y = 0
+                self.on_ground = True
+                self.vx = 0
+                self.vy = 0
+
+class SimulationApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Projectile Simulation with Atmosphere")
+        self.dt = 0.1  # Time step (s)
+        self.simulation_count = 0
+        self.comparison_projectiles = []
+        self.x_values = []
+        self.y_values = []
+
+        # Input fields
+        self.height_label = Label(root, text="Initial Height (m):")
+        self.height_label.pack()
+        self.height_entry = Entry(root)
+        self.height_entry.pack()
+
+        self.angle_label = Label(root, text="Launch Angle (degrees):")
+        self.angle_label.pack()
+        self.angle_entry = Entry(root)
+        self.angle_entry.pack()
+
+        self.speed_label = Label(root, text="Initial Speed (m/s):")
+        self.speed_label.pack()
+        self.speed_entry = Entry(root)
+        self.speed_entry.pack()
+
+        self.size_label = Label(root, text="Cross-sectional Area (m^2):")
+        self.size_label.pack()
+        self.size_entry = Entry(root)
+        self.size_entry.pack()
+
+        self.weight_label = Label(root, text="Mass (kg):")
+        self.weight_label.pack()
+        self.weight_entry = Entry(root)
+        self.weight_entry.pack()
+
+        # Checkbutton for comparison mode
+        self.compare_var = StringVar(value="0")
+        self.compare_check = Checkbutton(root, text="Add to Comparison", variable=self.compare_var, onvalue="1", offvalue="0")
+        self.compare_check.pack()
+
+        # Label and Entry for Time Step
+        self.dt_label = Label(root, text="Time Step (s):")
+        self.dt_label.pack()
+        self.dt_entry = Entry(root)
+        self.dt_entry.insert(0, str(self.dt))
+        self.dt_entry.pack()
+
+        # Button to start simulation
+        simulate_button = Button(root, text="Simulate", command=self.start_simulation)
+        simulate_button.pack()
+
+        # Plotting area
+        self.fig, self.ax = plt.subplots(figsize=(10, 6))
+        self.ax.set_xlabel('Horizontal Distance (m)')
+        self.ax.set_ylabel('Height (m)')
+        self.ax.set_title('Projectile Trajectory with Atmosphere')
+        self.ax.grid(True)
+        plt.ion()
+        plt.show(block=False)
+
+    def start_simulation(self):
+        try:
+            v0 = float(self.speed_entry.get())
+            angle = float(self.angle_entry.get())
+            height = float(self.height_entry.get())
+            size = float(self.size_entry.get())
+            weight = float(self.weight_entry.get())
+            self.dt = float(self.dt_entry.get())
+
+            if not all(val >= 0 for val in [v0, angle, height, size, weight, self.dt]):
+                raise ValueError("All input values must be non-negative numbers.")
+            if angle > 90:
+                raise ValueError("Launch angle must be between 0 and 90 degrees.")
+
+            self.projectile = Projectile(v0, angle, height, size, weight)
+            self.x_values = [self.projectile.x]
+            self.y_values = [self.projectile.y]
+
+            self.animate()
+
+        except ValueError as e:
+            print(f"Error: {e}")
+
+    def animate(self):
+        if not self.projectile.on_ground:
+            self.update_plot()
+            self.root.after(int(self.dt * 1000), self.animate)
+        else:
+            self.simulation_count += 1
+            if self.compare_var.get() == "1":
+                self.comparison_projectiles.append({
+                    'x': self.x_values,
+                    'y': self.y_values,
+                    'label': f"Simulation {self.simulation_count}"
+                })
+                self.compare_var.set("0")
+                self.compare_check.deselect()
+
+    def update_plot(self):
+        self.projectile.update(self.dt)
+        self.x_values.append(self.projectile.x)
+        self.y_values.append(self.projectile.y)
+
+        self.ax.clear()
+
+        for proj in self.comparison_projectiles:
+            self.ax.plot(proj['x'], proj['y'], label=proj['label'], linestyle='--')
+
+        self.ax.plot(self.x_values, self.y_values, label=f"Simulation {self.simulation_count + 1}", linewidth=2)
+        self.ax.set_xlabel('Horizontal Distance (m)')
+        self.ax.set_ylabel('Height (m)')
+        self.ax.set_title('Projectile Trajectory with Atmosphere')
+        self.ax.grid(True)
+
+        self.ax.legend()
+        plt.draw()
+        plt.pause(0.01)
+
+    def clear_comparison_data(self):
+        self.comparison_projectiles = []
+        self.ax.clear()
+        self.ax.set_xlabel('Horizontal Distance (m)')
+        self.ax.set_ylabel('Height (m)')
+        self.ax.set_title('Projectile Trajectory with Atmosphere')
+        self.ax.grid(True)
+        plt.draw()
+
+if __name__ == "__main__":
+    root = Tk()
+    app = SimulationApp(root)
+    root.mainloop()
