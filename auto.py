@@ -1,6 +1,5 @@
 import matplotlib
 matplotlib.use("TkAgg")  # Use TkAgg for GUI compatibility
-import cellpylib as cpl
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import tkinter as tk
@@ -18,23 +17,20 @@ rule_map = {
     "Rule 250: All-on replication": 250
 }
 
-# Initial state (padded to maintain width)
-width = 20  # Adjusted width for better visualization
-initial_state = np.zeros((6, width), dtype=int)
-pattern = [
-    [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0],
-    [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0],
-    [0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1],
-    [0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0],
-    [0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0]
-]
-initial_state[:len(pattern)] = np.array(pattern)
+# Automaton settings
+width = 60   # Increased width for better visualization
+steps = 40   # Number of time steps
 
-# GUI for rule selection
+# Initial state: Single active cell in the center
+initial_state = np.zeros(width, dtype=int)
+initial_state[width // 2] = 1  # Activate center cell
+
+running = False  # Global flag to control animation
+
+
 def select_rule():
+    """Create the GUI for rule selection."""
     global running
-    running = False
 
     def toggle_animation():
         global running
@@ -59,7 +55,7 @@ def select_rule():
     main_frame = ttk.Frame(window, padding=10)
     main_frame.pack(fill='both', expand=True)
 
-    ttk.Label(main_frame, text="Rule").grid(row=0, column=0, padx=10, pady=5)
+    ttk.Label(main_frame, text="Select Rule").grid(row=0, column=0, padx=10, pady=5)
     rule_var = tk.StringVar(value=list(rule_map.keys())[0])
     rule_dropdown = ttk.Combobox(main_frame, textvariable=rule_var, values=list(rule_map.keys()), state="readonly")
     rule_dropdown.grid(row=0, column=1, padx=10, pady=5)
@@ -69,49 +65,55 @@ def select_rule():
 
     window.mainloop()
 
-# Rule application function
+
 def apply_rule(current_state, rule_number):
-    """
-    Apply the selected rule to the current state to generate the next state.
-    This function will be specific to the rule.
-    """
-    rule_binary = f"{rule_number:08b}"  # Convert rule number to 8-bit binary string
+    """Apply the selected rule to generate the next state."""
+    rule_binary = f"{rule_number:08b}"  # Convert rule number to binary
     next_state = np.zeros_like(current_state)
 
-    # Loop through each cell and apply the rule
-    for i in range(1, len(current_state) - 1):
-        # Get the neighborhood (previous, current, next)
-        neighborhood = (current_state[i - 1] << 2) | (current_state[i] << 1) | current_state[i + 1]
-        # Apply the rule based on the neighborhood
-        next_state[i] = int(rule_binary[7 - neighborhood], 2)
+    for i in range(len(current_state)):
+        left = current_state[i - 1] if i > 0 else 0
+        center = current_state[i]
+        right = current_state[i + 1] if i < len(current_state) - 1 else 0
 
-    return next_state
+        # Convert neighborhood to decimal
+        neighborhood = (left << 2) | (center << 1) | right # representation for 3bit neighbourhood
+        next_state[i] = int(rule_binary[7 - neighborhood])  # Apply rule
 
-# Cellular automaton simulation
+    return next_state # new state is assigned to i 
+
+
 def simulate(rule_number):
+    """Run and animate the cellular automaton with a grid."""
     global running
-    running = True
-    steps = 20
-    grid = np.zeros((steps + len(initial_state), width), dtype=int)
-    grid[:len(initial_state)] = initial_state
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.set_xticks(np.arange(-.5, width, 1), minor=True)
-    ax.set_yticks(np.arange(-.5, steps + len(initial_state), 1), minor=True)
-    ax.grid(which="minor", color='black', linestyle='-', linewidth=1)
-    ax.tick_params(which="both", left=False, bottom=False, labelleft=True, labelbottom=False)
-    img = ax.imshow(grid, cmap='Greens', aspect='auto', origin='upper', interpolation='none')
-    ax.set_title(f"Elementary Cellular Automaton Rule {rule_number}")
+    # Initialize grid to store evolution steps
+    grid = np.zeros((steps, width), dtype=int)
+    grid[0] = initial_state  # Set initial state as first row
+
+    fig, ax = plt.subplots(figsize=(10, 6))  # Larger figure for better visualization
+
+    # Display the grid with minor ticks
+    ax.set_xticks(np.arange(-0.5, width, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, steps, 1), minor=True)
+    ax.grid(which="minor", color="gray", linestyle="-", linewidth=0.5)
+
+    # Remove major axis labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    img = ax.imshow(grid, cmap="Greens", aspect="auto", interpolation="none")
+    ax.set_title(f"Elementary Cellular Automaton - Rule {rule_number}")
 
     def evolve(i):
-        if running and i < steps:
-            new_state = apply_rule(grid[i + len(initial_state) - 1], rule_number)
-            grid[i + len(initial_state)] = new_state  # Update grid with new state
-            img.set_array(grid)
+        if running and i < steps - 1:
+            grid[i + 1] = apply_rule(grid[i], rule_number)  # Generate next state
+            img.set_array(grid)  # Update display
         return [img]
 
-    ani = animation.FuncAnimation(fig, evolve, frames=steps, interval=200, blit=False)
+    ani = animation.FuncAnimation(fig, evolve, frames=steps, interval=150, blit=False)
     plt.show()
+
 
 if __name__ == "__main__":
     select_rule()
